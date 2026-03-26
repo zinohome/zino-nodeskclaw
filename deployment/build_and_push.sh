@@ -27,4 +27,16 @@ docker build -t ${REGISTRY}/nodeskclaw-portal:${TAG} ../projects/nodeskclaw/node
 docker push ${REGISTRY}/nodeskclaw-portal:${TAG}
 
 echo "所有镜像打包、打 tag 及 Push 均已完成！"
+
+# 4. 自动修改 docker-compose.yml 中的版本兜底值
+echo "[4/4] 自动更新 docker-compose.yml 镜像版本号至 ${TAG}..."
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  # macOS 环境
+  sed -i '' "s/\\\${APP_VERSION:-[a-zA-Z0-9.\-]*}/\\\${APP_VERSION:-${TAG}}/g" docker-compose.yml
+else
+  # Linux (Ubuntu, CentOS, etc.)
+  sed -i "s/\\\${APP_VERSION:-[a-zA-Z0-9.\-]*}/\\\${APP_VERSION:-${TAG}}/g" docker-compose.yml
+fi
+echo "成功将 docker-compose.yml 默认版本指针更新！"
+
 echo "请在部署目录直接执行: docker-compose up -d"
