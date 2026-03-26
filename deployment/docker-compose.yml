@@ -1,0 +1,84 @@
+# 架构提示：部署相关的 Compose 文件，禁止包含 local build 操作，以达到镜像和部署分离。
+# 使用了指定的私有仓库：harbor.naivehero.top:8443/claw/
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nodeskclaw-postgres
+    volumes:
+      # 映射到 /data/nodeskclaw/postgres
+      - /data/nodeskclaw/postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nodeskclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nodeskclaw}
+      POSTGRES_DB: ${POSTGRES_DB:-nodeskclaw}
+      TZ: ${TZ:-Asia/Shanghai}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nodeskclaw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - 1panel-network
+
+  nodeskclaw-backend:
+    image: harbor.naivehero.top:8443/claw/nodeskclaw-backend:${APP_VERSION:-3.26}
+    container_name: nodeskclaw-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 映射到 /data/nodeskclaw 下的 docker-instances 目录
+      - /data/nodeskclaw/docker-instances:${NODESKCLAW_DATA_DIR:-/data/nodeskclaw/docker-instances}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
+      DATABASE_NAME_SUFFIX: ""
+      LLM_PROXY_URL: http://llm-proxy:8080
+      LLM_PROXY_INTERNAL_URL: http://llm-proxy:8080
+      NODESKCLAW_EDITION: ce
+      DOCKER_DATA_DIR: ${NODESKCLAW_DATA_DIR:-/data/nodeskclaw/docker-instances}
+      DEBUG: ${DEBUG:-true}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-32-bytes-base64-key__=}
+      INIT_ADMIN_ACCOUNT: ${INIT_ADMIN_ACCOUNT:-admin}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${BACKEND_PORT:-4510}:8000"
+    restart: unless-stopped
+    networks:
+      - 1panel-network
+
+  llm-proxy:
+    image: harbor.naivehero.top:8443/claw/nodeskclaw-llm-proxy:${APP_VERSION:-3.26}
+    container_name: nodeskclaw-llm-proxy
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${LLM_PROXY_PORT:-4511}:8080"
+    restart: unless-stopped
+    networks:
+      - 1panel-network
+
+  portal:
+    image: harbor.naivehero.top:8443/claw/nodeskclaw-portal:${APP_VERSION:-3.26}
+    container_name: nodeskclaw-portal
+    depends_on:
+      - nodeskclaw-backend
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${PORTAL_PORT:-80}:80"
+    restart: unless-stopped
+    networks:
+      - 1panel-network
+
+
+networks:
+  # 按照要求指定 1panel 外部网络
+  1panel-network:
+    external: true
